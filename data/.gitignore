@@ -1,4 +1,7 @@
-# Ignore everything in this directory
-*
-# Except this file
-!.gitignore
+# Raw and generated data remain local; documentation and directory markers are versioned.
+raw/*
+processed/*
+samples/*
+!raw/.gitkeep
+!processed/.gitkeep
+!samples/.gitkeep
