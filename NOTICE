@@ -1,0 +1,14 @@
+FraudShield
+Copyright 2026 FraudShield contributors
+
+This project was developed as a substantial extension and modernization of the CloudAcademy
+fraud-detection project, distributed under the Apache License 2.0:
+https://github.com/cloudacademy/fraud-detection
+
+The original project provided a logistic-regression training pipeline and Flask prediction
+service. This version adds modern model evaluation, cost-sensitive threshold selection,
+calibration, FastAPI serving, model metadata, monitoring, SQL analytics, and updated tests.
+
+The original LICENSE is retained. Major Python implementation and documentation files in this
+version were substantially rewritten or newly created.
+

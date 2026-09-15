@@ -1,60 +1,126 @@
-# fraud-detection
-Fraud Detection model based on anonymized credit card transactions
+# FraudShield
 
+Cost-sensitive credit-card fraud detection and risk scoring. FraudShield modernizes the
+CloudAcademy fraud-detection example into a reproducible decision system: it compares models
+with PR-AUC, evaluates calibration, selects a review threshold from explicit financial
+assumptions, serves versioned scores with FastAPI, audits predictions, and reports drift.
 
-## Getting started
-In order to set up a microservice exposing a fraud detection POST endpoint, follow these steps:
+> Educational portfolio project—not intended for real banking decisions.
 
-1. get the code from the repository
-```
-git clone https://github.com/cloudacademy/fraud-detection.git 
-```
-2. [download the dataset](https://clouda-labs-assets.s3-us-west-2.amazonaws.com/fraud-detection/creditcard.csv.zip) that will be used to train a transaction classifier. Unzip it and put the content (creditcard.csv) under folder data
+## Why fraud detection is difficult
 
-3. create a virtual environment (named e.g. fraud-detection), activate it and retrieve all needed python packages
-```
-pip install -r requirements-dev.txt
-```
-In case you do not needed to launch tests associated to this repo you only need to
-```
-pip install -r requirements.txt
-```
-instead
+Fraud is rare, so accuracy can look excellent while a model misses most fraud. FraudShield
+therefore ranks models by cross-validated average precision (PR-AUC), reserves a stratified test
+set, and reports recall, precision, ROC-AUC, Brier score, and decision cost. Class weights address
+imbalance without leaking synthetic samples across folds.
 
-4. launch a training for the fraud detection model
-```
-python src/train.py 
-```
-from the repo root. This will show information about the advancement of training, the parameters tried during parameter optimization and the quality metrics achieved for different cases. This step should end with a model.pickle file under folder models.
+## Architecture
 
-5. launch the Flask app
+```text
+CSV Dataset -> Validation / Stratified Split -> Three-model CV comparison
+                                               |
+                                               v
+                                  Calibration + Threshold Selection
+                                               |
+                                               v
+                                    Versioned Model Artifact
+                                      /         |          \
+                               FastAPI      Streamlit    Drift Report
+                                  |
+                          SQLite Prediction Log -> SQL analytics
 ```
-export FLASK_APP=src/flask_app.py
-flask run
-```
-After this, a POST endpoint is exposed at http://127.0.0.1:5000/. You can send an application/json body of the form
-```
-{
-    "features": [
-    	[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    	[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    ]
-}
-```
-i.e. the value of key "features" is a list of 30-floats-long lists, representing the values associated to the transaction.
-You will be returned a JSON
-```
-{
-    "scores": [
-        0.0323602000089039, 
-        0.00037634905230425804
-    ]
-}
-```
-i.e. one fraud probability per transaction list submitted
 
-6. if the requirements-dev were installed, you can launch tests for the microservice, via
+## Dataset
+
+The expected dataset is the public anonymized European cardholder transaction dataset used by
+the original project: `Time`, PCA-derived `V1`–`V28`, `Amount`, and binary `Class`. It is not
+committed. Download it using the link in [data/README.md](data/README.md) and place it at
+`data/raw/creditcard.csv`.
+
+## Modeling and evaluation
+
+Training compares balanced logistic regression, balanced random forest, and balanced histogram
+gradient boosting using three-fold stratified CV and compact grids. Only `Time` and `Amount` are
+scaled; the anonymized PCA components are preserved. The top model is evaluated with and without
+sigmoid calibration on a validation split. Thresholds are also selected on validation data. The
+held-out test set is used once for the final report.
+
+Run the benchmark:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -e '.[dev,dashboard]'
+python -m scripts.train --data data/raw/creditcard.csv
 ```
-nosetests
+
+Generated results are recorded in [docs/RESULTS.md](docs/RESULTS.md); machine-readable metrics,
+threshold curves, feature importance, model metadata, and run records live under `artifacts/`.
+
+## Cost-sensitive thresholding
+
+The configurable validation objective is:
+
+```text
+decision cost = false positives × review cost
+              + missed fraud amount × loss rate
 ```
-from the repo root
+
+Defaults (`$5` review, `100%` missed-amount loss, at least `80%` fraud recall) are illustrative
+assumptions, not industry facts. Change them with `--review-cost`, `--loss-rate`, and
+`--minimum-recall`. The report compares the selected threshold with 0.5 and the F1 optimum.
+
+## API
+
+```bash
+uvicorn fraudshield.api.main:app --host 0.0.0.0 --port 8000
+```
+
+- `GET /health` — service and model version
+- `POST /predict` — one validated 30-feature transaction
+- `POST /predict/batch` — 1–100 transactions
+- `GET /model/metrics` — frozen evaluation summary
+
+Open `/docs` for the generated request schema. Inputs reject missing/extra fields, negative
+amounts, NaN, and infinity. The SQLite audit stores only version, score, decision, threshold, and
+amount—not the raw feature vector. Queries are in `sql/`.
+
+## Monitoring and dashboard
+
+```bash
+python -m scripts.simulate_current_data
+python -m fraudshield.monitoring \
+  --reference artifacts/model/reference.csv \
+  --current data/processed/current.csv
+streamlit run dashboard/app.py
+```
+
+The offline report uses PSI bands documented in [docs/MODEL_CARD.md](docs/MODEL_CARD.md). Drift is
+a diagnostic signal, not proof that performance degraded. The dashboard presents performance,
+threshold economics, transaction scoring, and drift without retraining.
+
+## Tests and containers
+
+```bash
+ruff check .
+pytest
+docker build -t fraudshield .
+docker run --rm -p 8000:8000 fraudshield
+```
+
+The suite contains 46 focused tests across validation, splitting, cost arithmetic, metrics, API
+contracts, audit logging, and monitoring. CI runs lint and tests without retraining.
+
+## Limitations
+
+This single historical, highly anonymized dataset lacks customer, merchant, demographic, and
+operational review context. Fairness cannot be meaningfully audited. Costs are hypothetical, and
+the service has not been load-tested as real-time banking infrastructure. See the full
+[model card](docs/MODEL_CARD.md).
+
+## Attribution
+
+This is a substantial extension and modernization of CloudAcademy's Apache-2.0-licensed
+[`fraud-detection`](https://github.com/cloudacademy/fraud-detection) project. Its original logistic
+regression training pipeline and Flask endpoint were replaced; the Apache license is preserved.
+See [NOTICE](NOTICE) for details.
