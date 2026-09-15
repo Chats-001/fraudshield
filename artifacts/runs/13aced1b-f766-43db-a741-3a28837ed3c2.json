@@ -1,0 +1,16 @@
+{
+  "cv_average_precision": 0.8396336447790068,
+  "decision_cost": 2087.5,
+  "git_commit": "f87f1ca8b16d18c44a976213230eb008d55f2602",
+  "model_name": "random_forest",
+  "model_version": "random_forest-2026-09-15-76274b69",
+  "params": {
+    "model__max_depth": 14,
+    "model__min_samples_leaf": 1
+  },
+  "roc_auc": 0.9695980671390672,
+  "run_id": "13aced1b-f766-43db-a741-3a28837ed3c2",
+  "test_average_precision": 0.8265134910588162,
+  "threshold": 0.14643718592964824,
+  "timestamp": "2026-09-15T06:00:09.695283+00:00"
+}
